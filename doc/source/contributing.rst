@@ -25,7 +25,7 @@ Models, Public Classes, and Public Functions. For more internal and development-
 documentation please use hash tags.
 
 All documentation is verified to pass sphinx-build without errors via https://github.com/sandialabs/OpenCSP/blob/develop/.github/workflows/docs_check.yml.
-Solely documentation that has a associated sphinx config in https://github.com/sandialabs/OpenCSP/tree/develop/doc/source will be included in this online documentation.
+Solely documentation that has an associated sphinx config in https://github.com/sandialabs/OpenCSP/tree/develop/doc/source will be included in this online documentation.
 There are several different ways to include documentation in the sphinx config depending on what the source of documentation is. For general guidance, please see
 https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html. For examples of how this is currently done in OpenCSP, please see any of the config.rst files in doc/source. A common 
 use-case is to include a new class with its documented and undocumented non-private members. For example, to include the class 'Fringes' in the documentation you would add the following to
@@ -129,7 +129,7 @@ A Graphical User Interface that allows the user to select points on an image. Re
 
 opencsp/app/sofast
 ^^^^^^^^^^^^^^^^^^
-High-precision deflectometry measurement of CSP mirrors, including heliostat facets, full heliostats, and dishes.
+High-precision deflectometry measurement of CSP mirrors, including heliostat facets, full heliostats, dishes, and parabolic trough mirrors.
 
 opencsp/app/target
 ^^^^^^^^^^^^^^^^^^
@@ -357,7 +357,7 @@ Please see 'Working with remotes' below, if you're not familiar with `upstream`.
 The 'develop' Branch
 ++++++++++++++++++++
 The develop branch contains unreleased code that has passed code review and unit testing. Unless you are
-performing a OpenCSP release, your PR should be opened against the develop branch.
+performing an OpenCSP release, your PR should be opened against the develop branch.
 
 The 'main Branch'
 +++++++++++++++++
