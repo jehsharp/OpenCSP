@@ -1,4 +1,4 @@
-name: github-UBI8-WEEKLY
+name: github-UBI8-WEEKLY-test
 
 # Runs every Sunday at midnight
 on:
