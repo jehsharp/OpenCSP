@@ -1,0 +1,44 @@
+name: github-UBI8-WEEKLY-test
+
+# Runs every Sunday at midnight
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '00 00 * * 0'
+
+permissions:
+  contents: none
+
+# Cancels any in progress 'workflow' associated with this PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubi8-weekly:
+    if: github.event.repository.fork == false
+    runs-on: [opencsp-latest-ubi8-latest]
+    permissions:
+      packages: read
+      contents: read
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          path: OpenCSP
+
+      - name: pytest-cov (OpenCSP/example - scene_reconstruction)
+        working-directory: OpenCSP/example
+        run: |
+          python3 -m pip install -r ../requirements.txt
+          export PYTHONPATH=$PWD/../
+          pytest \
+            --color=yes \
+            -rs \
+            -vv \
+            --cov=. --cov-report term \
+            --cov-config=.coveragerc \
+            --dir-input=/box_data/scene_reconstruction/data_measurement/ \
+            --dir-output=/box_data/scene_reconstruction/data_calculation/ \
+            scene_reconstruction/example_scene_reconstruction.py
