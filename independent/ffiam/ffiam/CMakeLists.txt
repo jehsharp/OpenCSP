@@ -19,7 +19,20 @@ else()
     set(FFIAM_CUDA_ARCHS_FROM_USER FALSE)
 endif()
 
-project(ffiam LANGUAGES C CUDA CXX)
+# Detect a CUDA toolkit before project(). CUDA is needed for the GPU
+# accelerator (ffiam_lib), but the CPU-only backend (ffiam_lib_cpu) builds on
+# machines without it. When no nvcc/CUDA toolkit is present, project() omits the
+# CUDA language so configuration can succeed without CUDA.
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+    set(FFIAM_LANGUAGES C CUDA CXX)
+else()
+    message(STATUS "FFIAM: no CUDA toolkit found; building CPU-only backend (ffiam_lib_cpu)")
+    set(FFIAM_LANGUAGES C CXX)
+endif()
+
+project(ffiam LANGUAGES ${FFIAM_LANGUAGES})
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,11 +78,7 @@ include_directories(
 # CUDA Configuration
 ##############################################################################
 
-include(CheckLanguage)
-check_language(CUDA)
-
 if(CMAKE_CUDA_COMPILER)
-    enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED)
 
     # For Xcode/clang compatibility
@@ -87,44 +96,69 @@ if(CMAKE_CUDA_COMPILER)
         set(CUDA_TOOLKIT_RPATH_FLAG "-Wl,-rpath,${CUDA_TOOLKIT_ROOT_DIR}/lib")
     endif()
 else()
-    message(FATAL_ERROR "CUDA compiler not found. CUDA is required to build FFIAM.")
+    message(STATUS "FFIAM: building in CPU-only mode (ffiam_lib_cpu). "
+                   "The GPU accelerator ffiam_lib and its CUDA tests are skipped.")
 endif()
 
-# Decide which CUDA architectures to build for.
-#
-# If the caller passed -DCMAKE_CUDA_ARCHITECTURES=..., honour it verbatim.
-# Otherwise pick a sane default -- NOT CMake's, which is 52 (Maxwell, 2014) and
-# silently leaves modern GPUs running JIT-compiled PTX.
-#
-# "native" builds only for the GPU in this machine, but CMake only understands
-# it from 3.24 (older versions pass it through unexpanded and nvcc dies with
-# "Unsupported gpu architecture 'compute_'"), and it needs a GPU visible at
-# configure time. Fall back to an explicit list, trimmed to what the detected
-# nvcc actually supports: sm_89 needs CUDA >= 11.8, sm_120 needs CUDA >= 12.8.
-if(FFIAM_CUDA_ARCHS_FROM_USER)
-    set(FFIAM_CUDA_ARCHS ${CMAKE_CUDA_ARCHITECTURES})
-    message(STATUS "FFIAM: using caller-supplied CUDA architectures: ${FFIAM_CUDA_ARCHS}")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
-    set(FFIAM_CUDA_ARCHS native)
-    message(STATUS "FFIAM: CUDA architectures = native (this machine's GPU)")
+if(CMAKE_CUDA_COMPILER)
+    # Decide which CUDA architectures to build for.
+    #
+    # If the caller passed -DCMAKE_CUDA_ARCHITECTURES=..., honour it verbatim.
+    # Otherwise pick a sane default -- NOT CMake's, which is 52 (Maxwell, 2014)
+    # and silently leaves modern GPUs running JIT-compiled PTX.
+    #
+    # "native" builds only for the GPU in this machine, but CMake only
+    # understands it from 3.24 (older versions pass it through unexpanded and
+    # nvcc dies with "Unsupported gpu architecture 'compute_'"), and it needs a
+    # GPU visible at configure time. Fall back to an explicit list, trimmed to
+    # what the detected nvcc actually supports: sm_89 needs CUDA >= 11.8,
+    # sm_120 needs CUDA >= 12.8.
+    if(FFIAM_CUDA_ARCHS_FROM_USER)
+        set(FFIAM_CUDA_ARCHS ${CMAKE_CUDA_ARCHITECTURES})
+        message(STATUS "FFIAM: using caller-supplied CUDA architectures: ${FFIAM_CUDA_ARCHS}")
+    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
+        set(FFIAM_CUDA_ARCHS native)
+        message(STATUS "FFIAM: CUDA architectures = native (this machine's GPU)")
+    else()
+        set(FFIAM_CUDA_ARCHS 75)
+        if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 11.8)
+            list(APPEND FFIAM_CUDA_ARCHS 86 89)
+        endif()
+        if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+            list(APPEND FFIAM_CUDA_ARCHS 120)
+        endif()
+        message(STATUS "FFIAM: CMake ${CMAKE_VERSION} predates 'native' support (3.24); "
+                       "CUDA architectures = ${FFIAM_CUDA_ARCHS} "
+                       "(pass -DCMAKE_CUDA_ARCHITECTURES=... to override)")
+    endif()
+
+    # Helper function to configure CUDA targets
+    function(configure_cuda_target target_name)
+        target_link_libraries(${target_name} CUDA::cudart CUDA::cuda_driver)
+        set_property(TARGET ${target_name} PROPERTY CUDA_ARCHITECTURES ${FFIAM_CUDA_ARCHS})
+    endfunction()
 else()
-    set(FFIAM_CUDA_ARCHS 75)
-    if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 11.8)
-        list(APPEND FFIAM_CUDA_ARCHS 86 89)
-    endif()
-    if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
-        list(APPEND FFIAM_CUDA_ARCHS 120)
-    endif()
-    message(STATUS "FFIAM: CMake ${CMAKE_VERSION} predates 'native' support (3.24); "
-                   "CUDA architectures = ${FFIAM_CUDA_ARCHS} "
-                   "(pass -DCMAKE_CUDA_ARCHITECTURES=... to override)")
-endif()
+    # CPU-only build: provide a no-op configure_cuda_target so downstream code
+    # that calls it (only reachable under CUDA) still parses.
+    function(configure_cuda_target target_name)
+    endfunction()
 
-# Helper function to configure CUDA targets
-function(configure_cuda_target target_name)
-    target_link_libraries(${target_name} CUDA::cudart CUDA::cuda_driver)
-    set_property(TARGET ${target_name} PROPERTY CUDA_ARCHITECTURES ${FFIAM_CUDA_ARCHS})
-endfunction()
+    # The CPU-only target still needs the CUDA *headers* (float3, vector_types.h,
+    # cuda_runtime.h) even though no nvcc is present. Locate them so the CPU
+    # backend can compile without a CUDA toolkit/compiler.
+    find_path(FFIAM_CUDA_INCLUDE_DIR cuda_runtime.h
+        HINTS
+            "$ENV{CUDA_HOME}/include"
+            "$ENV{CUDA_PATH}/include"
+            "/usr/local/cuda/include"
+            "/usr/local/cuda-12/include"
+        PATH_SUFFIXES include)
+    if(FFIAM_CUDA_INCLUDE_DIR)
+        message(STATUS "FFIAM: using CUDA headers from ${FFIAM_CUDA_INCLUDE_DIR} for CPU-only backend")
+    else()
+        message(WARNING "FFIAM: cuda_runtime.h not found; the CPU-only backend (ffiam_lib_cpu) may fail to compile")
+    endif()
+endif()
 
 
 ##############################################################################
@@ -207,36 +241,40 @@ set(FFIAM_TEST_LIB_SOURCES
 ##############################################################################
 
 # ==== EXECUTABLE ====
-# Standalone executable for testing and development
-add_executable(ffiam ${FFIAM_SOURCES} ${FFIAM_HEADERS})
-target_include_directories(ffiam PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
-configure_cuda_target(ffiam)
-configure_openmp(ffiam)
+# Standalone executable for testing and development (CUDA only: sources contain .cu)
+if(CMAKE_CUDA_COMPILER)
+    add_executable(ffiam ${FFIAM_SOURCES} ${FFIAM_HEADERS})
+    target_include_directories(ffiam PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+    configure_cuda_target(ffiam)
+    configure_openmp(ffiam)
 
-add_custom_command(TARGET ffiam POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:ffiam>/data)
+    add_custom_command(TARGET ffiam POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:ffiam>/data)
+endif()
 
 
 # ==== SHARED LIBRARY (DLL) ====
-# For Python consumption via ctypes
+# For Python consumption via ctypes (CUDA only: sources contain .cu)
 if(WIN32)
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif()
-add_library(ffiam_lib SHARED ${FFIAM_SOURCES} ${FFIAM_HEADERS})
-target_include_directories(ffiam_lib PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
-configure_cuda_target(ffiam_lib)
-configure_openmp(ffiam_lib)
+if(CMAKE_CUDA_COMPILER)
+    add_library(ffiam_lib SHARED ${FFIAM_SOURCES} ${FFIAM_HEADERS})
+    target_include_directories(ffiam_lib PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+    configure_cuda_target(ffiam_lib)
+    configure_openmp(ffiam_lib)
 
-add_custom_command(TARGET ffiam_lib POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:ffiam>/data)
+    add_custom_command(TARGET ffiam_lib POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:ffiam>/data)
 
-# Copy shared library to pyffiam for Python integration
-add_custom_command(TARGET ffiam_lib POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        $<TARGET_FILE:ffiam_lib>
-        ${CMAKE_SOURCE_DIR}/../pyffiam/src/pyffiam/external/$<TARGET_FILE_NAME:ffiam_lib>)
+    # Copy shared library to pyffiam for Python integration
+    add_custom_command(TARGET ffiam_lib POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:ffiam_lib>
+            ${CMAKE_SOURCE_DIR}/../pyffiam/src/pyffiam/external/$<TARGET_FILE_NAME:ffiam_lib>)
+endif()
 
 
 # ==== SHARED LIBRARY (CPU-only) ====
@@ -264,8 +302,27 @@ foreach(src ${FFIAM_SOURCES})
     endif()
 endforeach()
 
+# Ensure the RPATH includes the OpenMP runtime library directory so the CPU
+# backend can find libomp.so at load time (clang/libomp is often in a
+# non-standard spack or LLVM path). We find it early so we can inject it
+# into CMAKE_BUILD_RPATH before the shared library target is created.
+if(FFIAM_HAVE_OPENMP)
+    find_library(FFIAM_OMP_LIB omp
+        HINTS ${OpenMP_CXX_LIB_NAMES}
+        PATH_SUFFIXES lib lib64)
+    if(FFIAM_OMP_LIB)
+        get_filename_component(_omp_lib_dir "${FFIAM_OMP_LIB}" DIRECTORY)
+        list(APPEND CMAKE_BUILD_RPATH "${_omp_lib_dir}")
+        list(APPEND CMAKE_INSTALL_RPATH "${_omp_lib_dir}")
+        message(STATUS "FFIAM: OpenMP lib dir added to RPATH: ${_omp_lib_dir}")
+    endif()
+endif()
+
 add_library(ffiam_lib_cpu SHARED ${FFIAM_CPU_SOURCES} ${FFIAM_HEADERS})
 target_include_directories(ffiam_lib_cpu PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+if(FFIAM_CUDA_INCLUDE_DIR)
+    target_include_directories(ffiam_lib_cpu PUBLIC ${FFIAM_CUDA_INCLUDE_DIR})
+endif()
 target_compile_definitions(ffiam_lib_cpu PRIVATE FFIAM_CPU_ONLY)
 configure_openmp(ffiam_lib_cpu)
 
@@ -282,14 +339,16 @@ add_custom_command(TARGET ffiam_lib_cpu POST_BUILD
 
 # ==== STATIC LIBRARY ====
 # For Unreal Engine integration (must be built in Release config)
-add_library(ffiam_ue STATIC ${FFIAM_SOURCES} ${FFIAM_HEADERS})
-target_include_directories(ffiam_ue PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
-configure_cuda_target(ffiam_ue)
-configure_openmp(ffiam_ue)
+if(CMAKE_CUDA_COMPILER)
+    add_library(ffiam_ue STATIC ${FFIAM_SOURCES} ${FFIAM_HEADERS})
+    target_include_directories(ffiam_ue PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+    configure_cuda_target(ffiam_ue)
+    configure_openmp(ffiam_ue)
 
-add_custom_command(TARGET ffiam_ue POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:ffiam>/data)
+    add_custom_command(TARGET ffiam_ue POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:ffiam>/data)
+endif()
 
 
 ##############################################################################

@@ -1,2 +1,20 @@
 [tool.black]
 line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = [
+    "opencsp/test",
+    "independent/ffiam/pyffiam/tests",
+]
+pythonpath = [
+    "independent/ffiam/pyffiam/src",
+]
+python_files = ["test_*.py"]
+python_classes = ["Test*", "*TestCase"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+log_cli = true
+log_cli_level = "WARNING"
+markers = [
+    "requires_cuda: skip when no CUDA runtime is present",
+]
