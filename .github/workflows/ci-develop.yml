@@ -1,0 +1,100 @@
+# CI — build the FFIAM C++ CPU backend and run the full pytest suite.
+#
+# Triggers on:
+#   - pushes to develop
+#   - pull requests targeting develop (runs on your fork PRs)
+#   - manual dispatch (for ad-hoc runs)
+#
+# Uses the NVIDIA CUDA devel container so CUDA headers are available for the
+# CPU-only backend build. No GPU is needed -- CUDA-dependent tests auto-skip.
+
+name: CI (develop)
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: build + pytest
+    runs-on: ubuntu-latest
+    container:
+      image: nvidia/cuda:12.8.0-devel-ubuntu22.04
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
+
+    steps:
+      # ---------- system packages ----------
+      - name: Install system packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            cmake g++ git \
+            python3 python3-pip python3-dev \
+            ffmpeg \
+            libgl1-mesa-glx libglib2.0-0 \
+            locales
+          locale-gen en_US.UTF-8
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------- Python dependencies ----------
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+
+          # OpenCSP core deps (skip pypylon -- requires proprietary Basler SDK)
+          python3 -m pip install \
+            "numpy<3.0.0" \
+            "h5py>=3.10.0" \
+            "matplotlib<=3.8.4" \
+            "scipy>=1.12.0,<=1.15.2" \
+            "pyproj>=3.6.1" \
+            "sympy>=1.12" \
+            "pyexiftool>=0.5.6" \
+            "opencv-contrib-python==4.11.0.86" \
+            "python-pptx>=0.6.23" \
+            "rawpy>=0.19.1" \
+            "openpyxl>=3.1.2" \
+            "pysolar>=0.11" \
+            "ipykernel>=6.29.3" \
+            "pytest>=8.1.1" \
+            "pytest-cov>=4.1.0"
+
+          # Plotly + Kaleido pinned pair (self-contained, no system Chrome)
+          python3 -m pip install "plotly==6.0.1" "kaleido==0.2.1"
+
+      # ---------- Build FFIAM C++ CPU backend ----------
+      - name: Build ffiam_lib_cpu
+        working-directory: independent/ffiam/ffiam
+        run: |
+          cmake -B build-cpu -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cpu --target ffiam_lib_cpu
+
+      - name: Verify ffiam shared library
+        run: |
+          ls -la independent/ffiam/pyffiam/src/pyffiam/external/libffiam_lib_cpu.so
+
+      # ---------- Run tests ----------
+      - name: pytest (root -- opencsp + pyffiam)
+        run: |
+          python3 -m pytest --color=yes -rs -vv --cov=. --cov-report term
+
+      - name: pytest (example/)
+        working-directory: example
+        run: |
+          export PYTHONPATH=$PWD/../
+          python3 -m pytest --color=yes -rs -vv --cov=. --cov-report term --cov-config=.coveragerc

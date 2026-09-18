@@ -49,8 +49,11 @@ python -m pip install \
   "pysolar>=0.11" \
   "ipykernel>=6.29.3"
 
-# (once) upgrade plotly -- kaleido (image export) needs plotly >= 6.1.1
-python -m pip install -U plotly
+# (once) install the plotly/kaleido pair pinned by pyffiam.
+# plotly 6.0.1 + kaleido 0.2.1 is SELF-CONTAINED (kaleido 0.2.1 bundles
+# Chromium). Do NOT upgrade plotly to 7.x -- plotly 7 requires kaleido>=1,
+# which in turn needs a system Google Chrome install for PNG export.
+python -m pip install "plotly==6.0.1" "kaleido==0.2.1"
 ```
 
 ---
@@ -130,7 +133,7 @@ pytest
 | `FFIAM CPU library not found at .../external/libffiam_lib_cpu.so` | backend not built — redo section 2. |
 | `libomp.so: cannot open shared object file` at load | stale `.so` (no RPATH); rebuild with section 2b so the OpenMP RPATH is embedded. |
 | `stddef.h: No such file or directory` during build | CUDA module / host gcc version mismatch — `module load sems-gcc/13.2.0` and reconfigure fresh. |
-| `kaleido`/`Chrome` image-export errors in 18 plot tests | optional: plotly >= 6.1.1 required; static PNG export also needs Chrome installed. |
+| `kaleido`/`Chrome` image-export errors (`KALEIDO_REQUIRED_MSG`, `RuntimeError`) | venv has plotly 7.x (requires `kaleido>=1` + Chrome) or no kaleido. Install pyffiam's self-contained pair instead: `pip install "plotly==6.0.1" "kaleido==0.2.1"`. |
 | `DockerParity` tests error/skip | expected without a local `ffiam` Docker image / no GPU. |
 | `pypylon` fails to install | known-broken; not required for tests. Skipped in section 1. |
 
@@ -139,7 +142,5 @@ pytest
 These are environmental, not code bugs:
 
 - **5 Docker parity errors** — need a `ffiam` Docker image + CUDA runtime.
-- **~18 plot-export failures** — kaleido static export needs Google Chrome
-  installed; these pass once Chrome is available.
 - **CUDA tests** — auto-skip via the `requires_cuda` marker when no CUDA
   runtime/device is present.

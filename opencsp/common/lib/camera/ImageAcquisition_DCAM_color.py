@@ -1,9 +1,9 @@
 import numpy as np
-from pypylon import pylon
 
 from opencsp.common.lib.camera.image_processing import encode_RG_to_RGB
 from opencsp.common.lib.camera.ImageAcquisitionAbstract import ImageAcquisitionAbstract
 from opencsp.common.lib.camera.ImageAcquisition_DCAM_mono import ImageAcquisition as MonoIA
+from opencsp.common.lib.camera.ImageAcquisition_DCAM_mono import _import_pylon
 import opencsp.common.lib.tool.exception_tools as et
 import opencsp.common.lib.tool.log_tools as lt
 
@@ -27,6 +27,8 @@ class ImageAcquisition(ImageAcquisitionAbstract):
 
         """
         MonoIA._check_pypylon_version()
+
+        pylon = _import_pylon()
 
         # Find all instances of DCAM cameras
         tlFactory = pylon.TlFactory.GetInstance()
@@ -131,6 +133,7 @@ class ImageAcquisition(ImageAcquisitionAbstract):
             failure to capture the frame.
         """
         # "ChatGPT 4o-mini" assisted with generating this docstring.
+        pylon = _import_pylon()
         # Start frame capture
         self.cap.StartGrabbingMax(1)
         grabResult = self.cap.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)

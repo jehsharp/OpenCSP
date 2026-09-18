@@ -1,11 +1,21 @@
 from importlib.metadata import version
 import numpy as np
 
-from pypylon import pylon
-
 from opencsp.common.lib.camera.ImageAcquisitionAbstract import ImageAcquisitionAbstract
 import opencsp.common.lib.tool.exception_tools as et
 import opencsp.common.lib.tool.log_tools as lt
+
+
+def _import_pylon():
+    """Lazily import pypylon.pylon so the module can be imported without the Basler SDK installed."""
+    try:
+        from pypylon import pylon
+    except ImportError as ex:
+        raise ImportError(
+            "The 'pypylon' package is required for Basler DCAM camera support but is not installed. "
+            "Install it with 'pip install pypylon' (requires the Basler Pylon SDK)."
+        ) from ex
+    return pylon
 
 
 class ImageAcquisition(ImageAcquisitionAbstract):
@@ -28,6 +38,7 @@ class ImageAcquisition(ImageAcquisitionAbstract):
                 - Others as defined by Basler
 
         """
+        pylon = _import_pylon()
         ImageAcquisition._check_pypylon_version()
 
         # Find all instances of DCAM cameras
@@ -153,6 +164,7 @@ class ImageAcquisition(ImageAcquisitionAbstract):
         captured successfully.
         """
         # "ChatGPT 4o-mini" assisted with generating this docstring.
+        pylon = _import_pylon()
         # Start frame capture
         self.cap.StartGrabbingMax(1)
         exposure_time_ms = self.cap.ExposureTimeRaw.Max / 1000  # exposure time, ms
