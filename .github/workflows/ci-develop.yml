@@ -5,8 +5,9 @@
 #   - pull requests targeting develop (runs on your fork PRs)
 #   - manual dispatch (for ad-hoc runs)
 #
-# Uses the NVIDIA CUDA devel container so CUDA headers are available for the
-# CPU-only backend build. No GPU is needed -- CUDA-dependent tests auto-skip.
+# Uses the NVIDIA CUDA devel UBI 8 container (matches the nightly's UBI 8
+# base) so CUDA headers are available for the CPU-only backend build. No GPU
+# is needed -- CUDA-dependent tests auto-skip.
 
 name: CI (develop)
 
@@ -26,27 +27,23 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: build + pytest
+    name: build + pytest (ubi8)
     runs-on: ubuntu-latest
     container:
-      image: nvidia/cuda:12.8.0-devel-ubuntu22.04
+      image: nvidia/cuda:12.8.0-devel-ubi8
 
     env:
-      DEBIAN_FRONTEND: noninteractive
       PIP_BREAK_SYSTEM_PACKAGES: "1"
 
     steps:
       # ---------- system packages ----------
       - name: Install system packages
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            cmake g++ git \
-            python3 python3-pip python3-dev \
-            ffmpeg \
-            libgl1-mesa-glx libglib2.0-0 \
-            locales
-          locale-gen en_US.UTF-8
+          dnf install -y \
+            cmake gcc-c++ git \
+            python3.11 python3.11-pip python3.11-devel \
+            mesa-libGL glib2 \
+            langpacks-en glibc-langpack-en
 
       - name: Checkout repository
         uses: actions/checkout@v4
