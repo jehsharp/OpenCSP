@@ -58,45 +58,49 @@ python -m pip install "plotly==6.0.1" "kaleido==0.2.1"
 
 ---
 
-## 2. Build the FFIAM C++ backend (required for backend-dependent tests)
+## 2. FFIAM Build Options (Choose ONE)
 
-The Python CPU backend loads a compiled shared library that CMake copies into
-`independent/ffiam/pyffiam/src/pyffiam/external/`.
+FFIAM tests require a compiled C++ backend. You have three options:
 
-### 2a. Load the CUDA module (headers + toolkit)
-
-```bash
-module load sems-cuda          # sets $CUDA_HOME, provides nvcc + headers
-```
-
-If the configure/build complains about a host-compiler mismatch (e.g.
-`stddef.h: No such file or directory`), load the matching compiler that the
-CUDA module was built against:
+### Option A: Build with CMake (Recommended for Developers)
 
 ```bash
-module load sems-gcc/13.2.0
-```
+# Install CMake 3.20+
+sudo apt-get install cmake      # Ubuntu/Debian
+# or
+sudo yum install cmake          # RHEL/CentOS
 
-### 2b. Configure + build the CPU-only backend
-
-```bash
+# Build CPU-only backend
 cd independent/ffiam/ffiam
-rm -rf build-cpu               # re-run from scratch (avoids stale cache)
+rm -rf build-cpu
 cmake -B build-cpu -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cpu --target ffiam_lib_cpu
+cd ../../..
 ```
 
-Expected: `lib/libffiam_lib_cpu.so` is produced and the POST_BUILD step copies
-it to `independent/ffiam/pyffiam/src/pyffiam/external/libffiam_lib_cpu.so`.
-
-Verify:
+### Option B: Build with Docker (Recommended for Users)
 
 ```bash
-ls -la ../pyffiam/src/pyffiam/external/libffiam_lib_cpu.so
-cd ../..                       # back to repo root
+# Install Docker: https://docs.docker.com/get-docker/
+
+# Build the FFIAM Docker image (from repo root)
+cd independent/ffiam
+./quickstart.sh  # This builds the Docker image
+cd ../..
+
+# The build plugin will automatically use Docker to build libraries
 ```
 
-If the library is missing, see section 4 (troubleshooting).
+### Option C: Use Pre-built Libraries
+
+If you have pre-built FFIAM libraries, place them in:
+```
+independent/ffiam/pyffiam/src/pyffiam/external/
+```
+
+Expected files:
+- `libffiam_lib.so` (GPU version)
+- `libffiam_lib_cpu.so` (CPU version)
 
 ---
 
@@ -107,6 +111,8 @@ If the library is missing, see section 4 (troubleshooting).
 ```bash
 pytest                        # run from repo root
 ```
+
+**Note:** If FFIAM dependencies are not available, tests will be automatically skipped with a clear message.
 
 ### pyffiam only
 
@@ -130,12 +136,13 @@ pytest
 | `No module named 'exiftool'` / `'cv2'` / `'matplotlib'` at collection | opencsp deps not installed — redo section 1. |
 | `bash: pip: command not found` | activate the venv first (`source .venv/bin/activate`). |
 | `No module named 'opencsp'` from `example/` | `example/pytest.ini` `pythonpath` must contain `..` (section 0). |
-| `FFIAM CPU library not found at .../external/libffiam_lib_cpu.so` | backend not built — redo section 2. |
+| `FFIAM CPU library not found at .../external/libffiam_lib_cpu.so` | backend not built — see section 2 for build options. |
 | `libomp.so: cannot open shared object file` at load | stale `.so` (no RPATH); rebuild with section 2b so the OpenMP RPATH is embedded. |
 | `stddef.h: No such file or directory` during build | CUDA module / host gcc version mismatch — `module load sems-gcc/13.2.0` and reconfigure fresh. |
 | `kaleido`/`Chrome` image-export errors (`KALEIDO_REQUIRED_MSG`, `RuntimeError`) | venv has plotly 7.x (requires `kaleido>=1` + Chrome) or no kaleido. Install pyffiam's self-contained pair instead: `pip install "plotly==6.0.1" "kaleido==0.2.1"`. |
 | `DockerParity` tests error/skip | expected without a local `ffiam` Docker image / no GPU. |
 | `pypylon` fails to install | known-broken; not required for tests. Skipped in section 1. |
+| All FFIAM tests skipped | No build method available — install CMake, Docker, or use pre-built libraries (see section 2). |
 
 ### Known remaining failures on a GPU-less dev node
 
@@ -144,3 +151,16 @@ These are environmental, not code bugs:
 - **5 Docker parity errors** — need a `ffiam` Docker image + CUDA runtime.
 - **CUDA tests** — auto-skip via the `requires_cuda` marker when no CUDA
   runtime/device is present.
+
+### FFIAM Build Error Messages
+
+If you see:
+```
+FFIAM TESTS SKIPPED
+Reason: No build method available
+- CMake: NOT found
+- Docker: NOT found
+- Pre-built libraries: NOT found
+```
+
+This means pytest cannot build or find FFIAM libraries. Choose one of the build options in section 2.
