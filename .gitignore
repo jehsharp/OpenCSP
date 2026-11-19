@@ -30,3 +30,14 @@ actual_output/
 
 # documentation generation
 doc/html/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Binary distribution packages
+*.tar.gz
+*.zip
+sofast-*.tar.gz
+sofast-*.zip
